@@ -1,87 +1,14 @@
 {
-  "name": "Chapman's Peek - The Oracle",
-  "short_name": "The Oracle",
-  "description": "Real-time financial intelligence terminal with anomaly detection and OSINT capabilities",
-  "start_url": "/dashboard",
-  "display": "standalone",
-  "background_color": "#0a0a0f",
-  "theme_color": "#00ff88",
-  "orientation": "any",
   "icons": [
     {
-      "src": "/icons/icon-72.png",
-      "sizes": "72x72",
+      "src": "/icon-192.png",
       "type": "image/png",
-      "purpose": "maskable any"
+      "sizes": "192x192"
     },
     {
-      "src": "/icons/icon-96.png",
-      "sizes": "96x96",
+      "src": "/icon-144.png",
       "type": "image/png",
-      "purpose": "maskable any"
-    },
-    {
-      "src": "/icons/icon-128.png",
-      "sizes": "128x128",
-      "type": "image/png",
-      "purpose": "maskable any"
-    },
-    {
-      "src": "/icons/icon-144.png",
-      "sizes": "144x144",
-      "type": "image/png",
-      "purpose": "maskable any"
-    },
-    {
-      "src": "/icons/icon-152.png",
-      "sizes": "152x152",
-      "type": "image/png",
-      "purpose": "maskable any"
-    },
-    {
-      "src": "/icons/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "maskable any"
-    },
-    {
-      "src": "/icons/icon-384.png",
-      "sizes": "384x384",
-      "type": "image/png",
-      "purpose": "maskable any"
-    },
-    {
-      "src": "/icons/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "maskable any"
-    }
-  ],
-  "categories": ["finance", "business", "productivity"],
-  "screenshots": [
-    {
-      "src": "/screenshots/dashboard.png",
-      "sizes": "1280x720",
-      "type": "image/png",
-      "form_factor": "wide"
-    },
-    {
-      "src": "/screenshots/mobile.png",
-      "sizes": "750x1334",
-      "type": "image/png",
-      "form_factor": "narrow"
-    }
-  ],
-  "shortcuts": [
-    {
-      "name": "Dashboard",
-      "url": "/dashboard",
-      "icons": [{ "src": "/icons/icon-96.png", "sizes": "96x96" }]
-    },
-    {
-      "name": "Anomaly Detection",
-      "url": "/dashboard?tab=anomaly",
-      "icons": [{ "src": "/icons/icon-96.png", "sizes": "96x96" }]
+      "sizes": "144x144"
     }
   ]
 }
