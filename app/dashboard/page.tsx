@@ -7,7 +7,6 @@ import dynamic from 'next/dynamic';
 // Dynamically import map component to avoid SSR issues
 const WorldHeatmap = dynamic(() => import('@/components/WorldHeatmap'), { ssr: false });
 
-// --- TYPES ---
 interface MarketData {
   symbol: string;
   name: string;
@@ -43,55 +42,35 @@ interface OSINTItem {
 
 type TabType = 'live' | 'map' | 'anomaly' | 'osint' | 'prophet';
 
-// --- MAIN COMPONENT ---
 export default function Dashboard() {
   const router = useRouter();
-  
-  // -- UI State --
   const [activeTab, setActiveTab] = useState<TabType>('live');
+  const [user, setUser] = useState<{ name: string; role: string } | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [isMobile, setIsMobile] = useState(false);
   
-  // -- Data State --
+  // Market data state
   const [marketData, setMarketData] = useState<Record<string, MarketData>>({});
   const [priceHistory, setPriceHistory] = useState<Record<string, number[]>>({});
+  
+  // Anomaly state
   const [anomalies, setAnomalies] = useState<Anomaly[]>([]);
   const [anomalyCount, setAnomalyCount] = useState(0);
+  
+  // OSINT state
   const [osintData, setOsintData] = useState<OSINTItem[]>([]);
   
-  // -- Refs --
+  // WebSocket refs
   const binanceWsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // 1. Clock & Mobile Check
+  // Clock update
   useEffect(() => {
-    // Clock
-    const timeInterval = setInterval(() => setCurrentTime(new Date()), 1000);
-    
-    // Responsive Handler
-    const handleResize = () => {
-      if (typeof window !== 'undefined') {
-        const mobile = window.innerWidth < 768;
-        setIsMobile(mobile);
-        if (mobile) setIsSidebarOpen(false); // Default closed on mobile
-        else setIsSidebarOpen(true); // Default open on desktop
-      }
-    };
-    
-    // Run once on mount
-    handleResize();
-    window.addEventListener('resize', handleResize);
-
-    return () => {
-      clearInterval(timeInterval);
-      window.removeEventListener('resize', handleResize);
-    };
+    const interval = setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => clearInterval(interval);
   }, []);
 
-  // 2. WebSocket Connection (HARDENED)
+  // Initialize WebSocket connections
   const connectBinanceWS = useCallback(() => {
-    // Prevent multiple connections
     if (binanceWsRef.current?.readyState === WebSocket.OPEN) return;
 
     const ws = new WebSocket('wss://stream.binance.com:9443/ws/btcusdt@ticker/ethusdt@ticker');
@@ -102,43 +81,31 @@ export default function Dashboard() {
 
     ws.onmessage = (event) => {
       try {
-        if (!event.data) return;
         const data = JSON.parse(event.data);
-        
-        // --- CRITICAL FIX: AGGRESSIVE FILTERING ---
-        // Ensure data is an object and has the specific 's' (symbol) property
-        // and that 's' is actually a string.
-        if (!data || typeof data !== 'object' || !data.s || typeof data.s !== 'string') {
-            return;
-        }
-
-        const symbol = data.s; 
+        const symbol = data.s; // BTCUSDT or ETHUSDT
         
         const marketInfo: MarketData = {
-          symbol: symbol,
+          symbol,
           name: symbol === 'BTCUSDT' ? 'Bitcoin' : 'Ethereum',
-          price: parseFloat(data.c || '0'),
-          change: parseFloat(data.p || '0'),
-          changePercent: parseFloat(data.P || '0'),
-          volume: parseFloat(data.v || '0'),
-          high24h: parseFloat(data.h || '0'),
-          low24h: parseFloat(data.l || '0'),
+          price: parseFloat(data.c),
+          change: parseFloat(data.p),
+          changePercent: parseFloat(data.P),
+          volume: parseFloat(data.v),
+          high24h: parseFloat(data.h),
+          low24h: parseFloat(data.l),
           lastUpdate: Date.now(),
         };
 
         setMarketData(prev => ({ ...prev, [symbol]: marketInfo }));
         
-        // Update history for anomaly detection
+        // Update price history for anomaly detection
         setPriceHistory(prev => {
           const history = prev[symbol] || [];
-          // Keep last 100 points
           const newHistory = [...history, marketInfo.price].slice(-100);
           return { ...prev, [symbol]: newHistory };
         });
-
       } catch (e) {
-        // Silently fail on parse errors to avoid crashing UI
-        // console.error('Error parsing Binance data:', e);
+        console.error('Error parsing Binance data:', e);
       }
     };
 
@@ -154,24 +121,21 @@ export default function Dashboard() {
     binanceWsRef.current = ws;
   }, []);
 
-  // 3. Data Fetching (OSINT & Anomaly)
+  // Fetch OSINT data
   const fetchOSINT = useCallback(async () => {
     try {
       const response = await fetch('/api/osint');
       if (response.ok) {
         const data = await response.json();
-        // Ensure articles is an array
-        if (Array.isArray(data.articles)) {
-            setOsintData(data.articles);
-        }
+        setOsintData(data.articles || []);
       }
     } catch (error) {
       console.error('OSINT fetch error:', error);
     }
   }, []);
 
+  // Run anomaly detection
   const runAnomalyDetection = useCallback(async () => {
-    // Only run if we have enough history
     for (const [symbol, data] of Object.entries(marketData)) {
       const history = priceHistory[symbol];
       if (!history || history.length < 20) continue;
@@ -185,7 +149,7 @@ export default function Dashboard() {
             currentData: { price: data.price, volume: data.volume },
             historicalData: history.map((price, i) => ({
               price,
-              volume: data.volume * (0.8 + Math.random() * 0.4), // Simulated historical volume
+              volume: data.volume * (0.8 + Math.random() * 0.4),
               timestamp: Date.now() - (history.length - i) * 60000,
             })),
           }),
@@ -193,13 +157,12 @@ export default function Dashboard() {
 
         if (response.ok) {
           const result = await response.json();
-          if (result.anomalies && Array.isArray(result.anomalies)) {
+          if (result.anomalies?.length > 0) {
             setAnomalies(prev => {
               const newAnomalies = result.anomalies.map((a: any) => ({
                 ...a,
                 id: `${symbol}-${a.type}-${Date.now()}`,
               }));
-              // Keep most recent 50
               return [...newAnomalies, ...prev].slice(0, 50);
             });
             setAnomalyCount(prev => prev + result.anomalies.length);
@@ -211,46 +174,35 @@ export default function Dashboard() {
     }
   }, [marketData, priceHistory]);
 
-  // 4. Initialize Intervals
+  // Initialize connections and data
   useEffect(() => {
     connectBinanceWS();
     fetchOSINT();
 
+    // Set up intervals
     const osintInterval = setInterval(fetchOSINT, 300000); // 5 minutes
     const anomalyInterval = setInterval(runAnomalyDetection, 30000); // 30 seconds
 
     return () => {
       binanceWsRef.current?.close();
-      if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
       clearInterval(osintInterval);
       clearInterval(anomalyInterval);
     };
   }, [connectBinanceWS, fetchOSINT, runAnomalyDetection]);
 
-  // 5. Helpers (BULLETPROOF FORMATTER)
   const handleLogout = async () => {
     await fetch('/api/auth/logout', { method: 'POST' });
     router.push('/');
   };
 
-  const formatPrice = (price: number, symbol: any) => {
-    // --- CRITICAL FIX: SAFEGUARD AGAINST UNDEFINED ---
-    // If symbol is missing, or not a string, fallback immediately
-    if (!symbol || typeof symbol !== 'string') {
-        return `$${(price || 0).toFixed(2)}`;
+  const formatPrice = (price: number, symbol: string) => {
+    if (symbol.includes('ZAR')) {
+      return `R ${price.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}`;
     }
-
-    try {
-        // Use optional chaining just in case
-        if (symbol?.includes('ZAR') || symbol === 'USDZAR') {
-          return `R ${price.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}`;
-        }
-        const digits = price > 1000 ? 0 : 2;
-        return `$${price.toLocaleString('en-US', { minimumFractionDigits: digits })}`;
-    } catch (e) {
-        // Ultimate fallback if localeString fails
-        return `${price}`;
-    }
+    return `$${price.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
   };
 
   const getSeverityColor = (severity: string) => {
@@ -263,44 +215,23 @@ export default function Dashboard() {
     }
   };
 
-  // --- RENDER ---
   return (
-    <div style={{
-      ...styles.container,
-      // Dynamic grid handles the sidebar collapsing/overlay
-      gridTemplateColumns: isMobile 
-        ? '1fr' 
-        : isSidebarOpen ? '260px 1fr' : '0px 1fr',
-    }}>
-      
-      {/* HEADER */}
+    <div style={styles.container}>
+      {/* Header */}
       <header style={styles.header}>
         <div style={styles.headerLeft}>
-          {/* Hamburger Menu Toggle */}
-          <button 
-            onClick={() => setIsSidebarOpen(!isSidebarOpen)} 
-            style={styles.menuBtn}
-            aria-label="Toggle Menu"
-          >
-            {isSidebarOpen ? '✕' : '☰'}
-          </button>
-          
           <h1 style={styles.logo}>CHAPMAN'S PEEK</h1>
-          {!isMobile && <span style={styles.subtitle}>THE ORACLE</span>}
+          <span style={styles.subtitle}>THE ORACLE</span>
         </div>
-        
-        {!isMobile && (
-          <div style={styles.headerCenter}>
-            <div style={styles.liveIndicator}>
-              <span style={styles.liveDot} />
-              LIVE
-            </div>
+        <div style={styles.headerCenter}>
+          <div style={styles.liveIndicator}>
+            <span style={styles.liveDot} />
+            LIVE
           </div>
-        )}
-
+        </div>
         <div style={styles.headerRight}>
           <div style={styles.clock}>
-            {currentTime.toLocaleTimeString('en-GB', { hour12: false, hour: '2-digit', minute: '2-digit' })}
+            {currentTime.toLocaleTimeString('en-GB', { hour12: false })}
           </div>
           <button onClick={handleLogout} style={styles.logoutBtn}>
             LOGOUT
@@ -308,34 +239,20 @@ export default function Dashboard() {
         </div>
       </header>
 
-      {/* SIDEBAR */}
-      <nav style={{
-        ...styles.sidebar,
-        // Mobile Logic: Sidebar becomes a full-width overlay when open
-        width: isSidebarOpen ? (isMobile ? '100vw' : '100%') : '0',
-        padding: isSidebarOpen ? '20px 0' : '0',
-        opacity: isSidebarOpen ? 1 : 0,
-        position: isMobile && isSidebarOpen ? 'absolute' : 'relative',
-        top: isMobile ? '70px' : 'auto',
-        bottom: 0,
-        zIndex: 100,
-        height: isMobile ? 'calc(100vh - 70px)' : 'auto',
-      }}>
+      {/* Sidebar */}
+      <nav style={styles.sidebar}>
         <div style={styles.sidebarSection}>
           <div style={styles.sidebarLabel}>TERMINAL</div>
           {[
             { id: 'live', label: 'Live Markets', icon: '📈' },
             { id: 'map', label: 'Global Map', icon: '🌍' },
-            { id: 'anomaly', label: 'Anomaly Detection', icon: ⚠️', count: anomalyCount },
+            { id: 'anomaly', label: 'Anomaly Detection', icon: '⚠️', count: anomalyCount },
             { id: 'osint', label: 'OSINT Feed', icon: '🔍' },
             { id: 'prophet', label: '48h Prophet', icon: '🔮' },
           ].map((item) => (
             <button
               key={item.id}
-              onClick={() => {
-                setActiveTab(item.id as TabType);
-                if (isMobile) setIsSidebarOpen(false); // Close menu on selection on mobile
-              }}
+              onClick={() => setActiveTab(item.id as TabType)}
               style={{
                 ...styles.sidebarItem,
                 ...(activeTab === item.id ? styles.sidebarItemActive : {}),
@@ -351,10 +268,9 @@ export default function Dashboard() {
         </div>
       </nav>
 
-      {/* MAIN CONTENT */}
+      {/* Main Content */}
       <main style={styles.main}>
-        
-        {/* TAB: Live Markets */}
+        {/* Live Markets Tab */}
         {activeTab === 'live' && (
           <div style={styles.tabContent}>
             <h2 style={styles.tabTitle}>REAL-TIME MARKET DATA</h2>
@@ -368,14 +284,15 @@ export default function Dashboard() {
                   <div style={styles.priceCardPrice}>
                     {formatPrice(data.price, symbol)}
                   </div>
-                  <div style={{
-                    ...styles.priceCardChange,
-                    color: data.changePercent >= 0 ? '#00ff88' : '#ff3b5c',
-                  }}>
+                  <div
+                    style={{
+                      ...styles.priceCardChange,
+                      color: data.changePercent >= 0 ? '#00ff88' : '#ff3b5c',
+                    }}
+                  >
                     {data.changePercent >= 0 ? '▲' : '▼'} {Math.abs(data.changePercent).toFixed(2)}%
                   </div>
                   <div style={styles.priceCardMeta}>
-                    {/* Pass symbol safely to helper */}
                     <span>H: {formatPrice(data.high24h, symbol)}</span>
                     <span>L: {formatPrice(data.low24h, symbol)}</span>
                   </div>
@@ -385,25 +302,30 @@ export default function Dashboard() {
                 </div>
               ))}
               
+              {/* Placeholder cards when no data */}
               {Object.keys(marketData).length === 0 && (
-                <div style={styles.emptyState}>
-                  <div style={styles.loadingText}>Initializing Feed...</div>
-                </div>
+                <>
+                  <div style={styles.priceCardLoading}>
+                    <div style={styles.loadingText}>Connecting to Binance...</div>
+                  </div>
+                  <div style={styles.priceCardLoading}>
+                    <div style={styles.loadingText}>Awaiting stream...</div>
+                  </div>
+                </>
               )}
             </div>
           </div>
         )}
 
-        {/* TAB: Global Map */}
+        {/* Global Map Tab */}
         {activeTab === 'map' && (
           <div style={styles.tabContent}>
             <h2 style={styles.tabTitle}>GLOBAL MARKET HEATMAP</h2>
-            {/* WorldHeatmap is external, assumed safe, but if it crashes it will be internal to it */}
             <WorldHeatmap osintData={osintData} />
           </div>
         )}
 
-        {/* TAB: Anomaly */}
+        {/* Anomaly Detection Tab */}
         {activeTab === 'anomaly' && (
           <div style={styles.tabContent}>
             <h2 style={styles.tabTitle}>ANOMALY DETECTION ENGINE</h2>
@@ -411,39 +333,47 @@ export default function Dashboard() {
               <div style={styles.anomalyStats}>
                 <div style={styles.statBox}>
                   <div style={styles.statValue}>{anomalies.length}</div>
-                  <div style={styles.statLabel}>Alerts</div>
+                  <div style={styles.statLabel}>Total Alerts</div>
                 </div>
                 <div style={styles.statBox}>
                   <div style={{ ...styles.statValue, color: '#ff3b5c' }}>
                     {anomalies.filter(a => a.severity === 'critical' || a.severity === 'high').length}
                   </div>
-                  <div style={styles.statLabel}>Critical</div>
+                  <div style={styles.statLabel}>High Severity</div>
                 </div>
               </div>
             </div>
-            
             <div style={styles.anomalyList}>
               {anomalies.length === 0 ? (
                 <div style={styles.emptyState}>
                   <div style={styles.emptyIcon}>🔍</div>
-                  <div style={styles.emptyText}>Scanning for anomalies...</div>
+                  <div style={styles.emptyText}>Monitoring for anomalies...</div>
+                  <div style={styles.emptySubtext}>
+                    Z-Score, LOF, and Volume Spike detection active
+                  </div>
                 </div>
               ) : (
                 anomalies.map((anomaly) => (
-                  <div key={anomaly.id} style={{
-                    ...styles.anomalyItem,
-                    borderLeftColor: getSeverityColor(anomaly.severity),
-                  }}>
+                  <div
+                    key={anomaly.id}
+                    style={{
+                      ...styles.anomalyItem,
+                      borderLeftColor: getSeverityColor(anomaly.severity),
+                    }}
+                  >
                     <div style={styles.anomalyItemHeader}>
-                      <span style={{
-                        ...styles.severityBadge,
-                        background: getSeverityColor(anomaly.severity) + '20',
-                        color: getSeverityColor(anomaly.severity),
-                        borderColor: getSeverityColor(anomaly.severity),
-                      }}>
-                        {anomaly.severity ? anomaly.severity.toUpperCase() : 'UNKNOWN'}
+                      <span
+                        style={{
+                          ...styles.severityBadge,
+                          background: getSeverityColor(anomaly.severity) + '20',
+                          color: getSeverityColor(anomaly.severity),
+                          borderColor: getSeverityColor(anomaly.severity),
+                        }}
+                      >
+                        {anomaly.severity.toUpperCase()}
                       </span>
                       <span style={styles.anomalyTicker}>{anomaly.ticker}</span>
+                      <span style={styles.anomalyType}>{anomaly.type}</span>
                     </div>
                     <div style={styles.anomalyMessage}>{anomaly.message}</div>
                     <div style={styles.anomalyTime}>
@@ -456,22 +386,37 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* TAB: OSINT */}
+        {/* OSINT Feed Tab */}
         {activeTab === 'osint' && (
           <div style={styles.tabContent}>
             <h2 style={styles.tabTitle}>OSINT INTELLIGENCE FEED</h2>
             <div style={styles.osintList}>
               {osintData.map((item) => (
-                <div key={item.id} style={{
-                  ...styles.osintItem,
-                  borderLeftColor: item.threatScore > 70 ? '#ff3b5c' : item.threatScore > 40 ? '#ffd700' : '#00ff88',
-                }}>
+                <div
+                  key={item.id}
+                  style={{
+                    ...styles.osintItem,
+                    borderLeftColor:
+                      item.threatScore > 70
+                        ? '#ff3b5c'
+                        : item.threatScore > 40
+                        ? '#ffd700'
+                        : '#00ff88',
+                  }}
+                >
                   <div style={styles.osintHeader}>
                     <span style={styles.osintCategory}>{item.category}</span>
-                    <span style={{
-                      ...styles.threatScore,
-                      color: item.threatScore > 70 ? '#ff3b5c' : item.threatScore > 40 ? '#ffd700' : '#00ff88',
-                    }}>
+                    <span
+                      style={{
+                        ...styles.threatScore,
+                        color:
+                          item.threatScore > 70
+                            ? '#ff3b5c'
+                            : item.threatScore > 40
+                            ? '#ffd700'
+                            : '#00ff88',
+                      }}
+                    >
                       THREAT: {item.threatScore}
                     </span>
                   </div>
@@ -480,6 +425,14 @@ export default function Dashboard() {
                     <span>{item.source}</span>
                     <span>•</span>
                     <span>{new Date(item.publishedAt).toLocaleDateString()}</span>
+                    {item.tickers && item.tickers.length > 0 && (
+                      <>
+                        <span>•</span>
+                        <span style={styles.osintTickers}>
+                          {item.tickers?.join(', ')}
+                        </span>
+                      </>
+                    )}
                   </div>
                 </div>
               ))}
@@ -487,7 +440,7 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* TAB: Prophet */}
+        {/* Prophet Tab */}
         {activeTab === 'prophet' && (
           <div style={styles.tabContent}>
             <h2 style={styles.tabTitle}>48-HOUR PROPHET FORECAST</h2>
@@ -495,36 +448,38 @@ export default function Dashboard() {
               <div style={styles.comingSoon}>
                 <div style={styles.comingSoonIcon}>🔮</div>
                 <div style={styles.comingSoonText}>ARIMA Forecasting Engine</div>
-                <div style={styles.comingSoonSubtext}>Connecting Alpha Vantage API...</div>
+                <div style={styles.comingSoonSubtext}>
+                  Connect Alpha Vantage API for predictive analysis
+                </div>
               </div>
             </div>
           </div>
         )}
       </main>
 
-      {/* FOOTER */}
+      {/* Footer */}
       <footer style={styles.footer}>
-        <span>© 2025 Chapman's</span>
+        <span>© 2025 Chapman's Capital</span>
         <span style={styles.footerDot}>•</span>
-        <span>Security360</span>
+        <span>All feeds live</span>
+        <span style={styles.footerDot}>•</span>
+        <span>Powered by Security360</span>
       </footer>
     </div>
   );
 }
 
-// --- STYLES ---
 const styles: { [key: string]: React.CSSProperties } = {
   container: {
     minHeight: '100vh',
     display: 'grid',
+    gridTemplateColumns: '260px 1fr',
     gridTemplateRows: '70px 1fr 40px',
     gridTemplateAreas: `
       "header header"
       "sidebar main"
       "footer footer"
     `,
-    transition: 'grid-template-columns 0.3s ease',
-    overflow: 'hidden',
   },
   header: {
     gridArea: 'header',
@@ -535,25 +490,11 @@ const styles: { [key: string]: React.CSSProperties } = {
     justifyContent: 'space-between',
     padding: '0 24px',
     backdropFilter: 'blur(10px)',
-    zIndex: 101,
   },
   headerLeft: {
     display: 'flex',
-    alignItems: 'center',
+    alignItems: 'baseline',
     gap: '12px',
-  },
-  menuBtn: {
-    background: 'transparent',
-    border: 'none',
-    color: '#00ff88',
-    fontSize: '20px',
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: '32px',
-    height: '32px',
-    marginRight: '8px',
   },
   logo: {
     fontFamily: "'Orbitron', sans-serif",
@@ -561,14 +502,12 @@ const styles: { [key: string]: React.CSSProperties } = {
     fontWeight: 800,
     color: '#00ff88',
     letterSpacing: '2px',
-    margin: 0,
   },
   subtitle: {
     fontFamily: "'Orbitron', sans-serif",
     fontSize: '10px',
     color: '#00d4ff',
     letterSpacing: '4px',
-    marginTop: '4px',
   },
   headerCenter: {
     display: 'flex',
@@ -620,12 +559,10 @@ const styles: { [key: string]: React.CSSProperties } = {
   },
   sidebar: {
     gridArea: 'sidebar',
-    background: 'rgba(15, 17, 23, 0.98)',
+    background: 'rgba(15, 17, 23, 0.95)',
     borderRight: '1px solid rgba(255, 255, 255, 0.05)',
+    padding: '20px 0',
     overflowY: 'auto',
-    overflowX: 'hidden',
-    transition: 'all 0.3s ease',
-    whiteSpace: 'nowrap',
   },
   sidebarSection: {
     marginBottom: '24px',
@@ -736,13 +673,24 @@ const styles: { [key: string]: React.CSSProperties } = {
     fontSize: '11px',
     color: '#4a5568',
   },
+  priceCardLoading: {
+    background: 'rgba(20, 25, 35, 0.9)',
+    border: '1px solid rgba(255, 255, 255, 0.08)',
+    borderRadius: '12px',
+    padding: '48px 24px',
+    textAlign: 'center',
+  },
+  loadingText: {
+    color: '#4a5568',
+    fontSize: '13px',
+    animation: 'pulse 1.5s ease-in-out infinite',
+  },
   anomalyHeader: {
     marginBottom: '24px',
   },
   anomalyStats: {
     display: 'flex',
     gap: '16px',
-    flexWrap: 'wrap',
   },
   statBox: {
     background: 'rgba(20, 25, 35, 0.9)',
@@ -751,7 +699,6 @@ const styles: { [key: string]: React.CSSProperties } = {
     padding: '20px 24px',
     textAlign: 'center',
     minWidth: '140px',
-    flex: '1 1 auto',
   },
   statValue: {
     fontSize: '32px',
@@ -782,7 +729,6 @@ const styles: { [key: string]: React.CSSProperties } = {
     alignItems: 'center',
     gap: '12px',
     marginBottom: '8px',
-    flexWrap: 'wrap',
   },
   severityBadge: {
     fontSize: '10px',
@@ -796,6 +742,11 @@ const styles: { [key: string]: React.CSSProperties } = {
     fontSize: '13px',
     fontWeight: 600,
     color: '#00d4ff',
+  },
+  anomalyType: {
+    fontSize: '11px',
+    color: '#8892a0',
+    marginLeft: 'auto',
   },
   anomalyMessage: {
     fontSize: '13px',
@@ -820,10 +771,9 @@ const styles: { [key: string]: React.CSSProperties } = {
     color: '#8892a0',
     marginBottom: '8px',
   },
-  loadingText: {
+  emptySubtext: {
+    fontSize: '12px',
     color: '#4a5568',
-    fontSize: '13px',
-    animation: 'pulse 1.5s ease-in-out infinite',
   },
   osintList: {
     display: 'flex',
@@ -871,7 +821,10 @@ const styles: { [key: string]: React.CSSProperties } = {
     gap: '8px',
     fontSize: '11px',
     color: '#8892a0',
-    flexWrap: 'wrap',
+  },
+  osintTickers: {
+    color: '#ffd700',
+    fontWeight: 600,
   },
   prophetContainer: {
     minHeight: '400px',
