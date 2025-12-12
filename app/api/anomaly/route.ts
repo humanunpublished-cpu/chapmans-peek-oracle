@@ -8,14 +8,14 @@ interface PriceData {
 }
 
 interface AnomalyResult {
-  type: 'zscore' | 'mahalanobis' | 'lof' | 'volume_spike' | 'price_deviation';
+  type: string;
   severity: 'low' | 'medium' | 'high' | 'critical';
   score: number;
   threshold: number;
   message: string;
   timestamp: number;
   ticker: string;
-  details: Record<string, any>;
+  details: Record<string, unknown>;
 }
 
 // Statistical helper functions
@@ -157,7 +157,6 @@ function detectLOFAnomaly(
 ): AnomalyResult | null {
   if (historicalData.length < 20) return null;
 
-  // Normalize data
   const prices = historicalData.map(d => d.price);
   const volumes = historicalData.map(d => d.volume);
   
@@ -176,7 +175,6 @@ function detectLOFAnomaly(
     volume: (d.volume - volumeMin) / (volumeMax - volumeMin || 1),
   }));
 
-  // Calculate distances to k nearest neighbors
   const k = Math.min(5, historicalData.length - 1);
   const distances = normalizedHistorical.map(h => 
     Math.sqrt(
@@ -189,10 +187,9 @@ function detectLOFAnomaly(
   const kDistance = distances.slice(0, k);
   const avgKDistance = mean(kDistance);
 
-  // Calculate average k-distance for all historical points
   const historicalKDistances = normalizedHistorical.map((_, i) => {
     const pointDistances = normalizedHistorical
-      .filter((_, j) => j !== i)
+      .filter((__, j) => j !== i)
       .map(h => Math.sqrt(
         Math.pow(normalizedHistorical[i].price - h.price, 2) +
         Math.pow(normalizedHistorical[i].volume - h.volume, 2)
@@ -241,11 +238,9 @@ export async function POST(request: NextRequest) {
 
     const anomalies: AnomalyResult[] = [];
 
-    // Extract historical prices and volumes
     const historicalPrices = historicalData.map((d: PriceData) => d.price);
     const historicalVolumes = historicalData.map((d: PriceData) => d.volume);
 
-    // Run all anomaly detection algorithms
     const zScoreAnomaly = detectZScoreAnomaly(
       currentData.price,
       historicalPrices,
@@ -275,9 +270,15 @@ export async function POST(request: NextRequest) {
     );
     if (lofAnomaly) anomalies.push(lofAnomaly);
 
-    // Sort by severity
-    const severityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
+    const severityOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
     anomalies.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
+
+    const typesList: string[] = [];
+    anomalies.forEach(a => {
+      if (!typesList.includes(a.type)) {
+        typesList.push(a.type);
+      }
+    });
 
     return NextResponse.json({
       ticker,
@@ -287,7 +288,7 @@ export async function POST(request: NextRequest) {
       summary: {
         hasAnomalies: anomalies.length > 0,
         highestSeverity: anomalies[0]?.severity || 'none',
-        types: Array.from(new Set(anomalies.map(a => a.type))),,
+        types: typesList
       },
     });
   } catch (error) {
@@ -299,7 +300,6 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// GET endpoint for health check and algorithm info
 export async function GET() {
   return NextResponse.json({
     status: 'online',
