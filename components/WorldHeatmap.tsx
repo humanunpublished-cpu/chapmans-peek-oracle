@@ -56,15 +56,29 @@ export default function WorldHeatmap({ osintData = [] }: WorldHeatmapProps) {
   useEffect(() => {
     if (typeof window === 'undefined' || !mapRef.current) return;
 
+    // Load Leaflet CSS via link tag
+    const linkId = 'leaflet-css';
+    if (!document.getElementById(linkId)) {
+      const link = document.createElement('link');
+      link.id = linkId;
+      link.rel = 'stylesheet';
+      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+      document.head.appendChild(link);
+    }
+
     const initMap = async () => {
       const L = (await import('leaflet')).default;
-      await import('leaflet/dist/leaflet.css');
+
+      // Wait a bit for CSS to load
+      await new Promise(resolve => setTimeout(resolve, 100));
 
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
       }
 
-      const map = L.map(mapRef.current!, {
+      if (!mapRef.current) return;
+
+      const map = L.map(mapRef.current, {
         center: [20, 0],
         zoom: 2,
         minZoom: 2,
@@ -93,7 +107,6 @@ export default function WorldHeatmap({ osintData = [] }: WorldHeatmapProps) {
               border-radius: 50%;
               box-shadow: 0 0 ${size}px ${color};
               opacity: 0.8;
-              animation: pulse 2s ease-in-out infinite;
             "></div>
           `,
           iconSize: [size, size],
@@ -108,7 +121,7 @@ export default function WorldHeatmap({ osintData = [] }: WorldHeatmapProps) {
             color: #e0e6ed;
             padding: 12px;
             border-radius: 8px;
-            font-family: 'JetBrains Mono', monospace;
+            font-family: monospace;
             min-width: 150px;
           ">
             <div style="font-weight: 600; color: ${color}; margin-bottom: 8px;">
@@ -121,9 +134,7 @@ export default function WorldHeatmap({ osintData = [] }: WorldHeatmapProps) {
               Activity: ${exchange.volume}%
             </div>
           </div>
-        `, {
-          className: 'dark-popup',
-        });
+        `);
       });
 
       // Add OSINT threat markers
@@ -158,7 +169,7 @@ export default function WorldHeatmap({ osintData = [] }: WorldHeatmapProps) {
                 color: #e0e6ed;
                 padding: 12px;
                 border-radius: 8px;
-                font-family: 'JetBrains Mono', monospace;
+                font-family: monospace;
                 max-width: 250px;
               ">
                 <div style="font-weight: 600; color: ${threatColor}; margin-bottom: 8px; font-size: 12px;">
@@ -174,9 +185,7 @@ export default function WorldHeatmap({ osintData = [] }: WorldHeatmapProps) {
                   Tickers: ${tickersText}
                 </div>
               </div>
-            `, {
-              className: 'dark-popup',
-            });
+            `);
           }
         });
       }
@@ -221,24 +230,6 @@ export default function WorldHeatmap({ osintData = [] }: WorldHeatmapProps) {
           <span>Warning</span>
         </div>
       </div>
-      <style jsx global>{`
-        .dark-popup .leaflet-popup-content-wrapper {
-          background: transparent;
-          box-shadow: none;
-          padding: 0;
-        }
-        .dark-popup .leaflet-popup-tip {
-          background: #1a1a2e;
-        }
-        .leaflet-container {
-          background: #0a0a0f;
-          font-family: 'JetBrains Mono', monospace;
-        }
-        @keyframes pulse {
-          0%, 100% { opacity: 0.8; transform: scale(1); }
-          50% { opacity: 1; transform: scale(1.1); }
-        }
-      `}</style>
     </div>
   );
 }
@@ -255,6 +246,7 @@ const styles: { [key: string]: React.CSSProperties } = {
   map: {
     width: '100%',
     height: '100%',
+    background: '#0a0a0f',
   },
   legend: {
     position: 'absolute',
