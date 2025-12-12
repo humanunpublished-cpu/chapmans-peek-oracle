@@ -71,10 +71,12 @@ export default function Dashboard() {
     
     // Responsive Handler
     const handleResize = () => {
-      const mobile = window.innerWidth < 768;
-      setIsMobile(mobile);
-      if (mobile) setIsSidebarOpen(false); // Default closed on mobile
-      else setIsSidebarOpen(true); // Default open on desktop
+      if (typeof window !== 'undefined') {
+        const mobile = window.innerWidth < 768;
+        setIsMobile(mobile);
+        if (mobile) setIsSidebarOpen(false); // Default closed on mobile
+        else setIsSidebarOpen(true); // Default open on desktop
+      }
     };
     
     // Run once on mount
@@ -87,8 +89,9 @@ export default function Dashboard() {
     };
   }, []);
 
-  // 2. WebSocket Connection (CRITICAL FIXES APPLIED HERE)
+  // 2. WebSocket Connection (HARDENED)
   const connectBinanceWS = useCallback(() => {
+    // Prevent multiple connections
     if (binanceWsRef.current?.readyState === WebSocket.OPEN) return;
 
     const ws = new WebSocket('wss://stream.binance.com:9443/ws/btcusdt@ticker/ethusdt@ticker');
@@ -99,25 +102,27 @@ export default function Dashboard() {
 
     ws.onmessage = (event) => {
       try {
+        if (!event.data) return;
         const data = JSON.parse(event.data);
         
-        // --- FIX: STOP THE CRASH ---
-        // Binance sends events that are NOT tickers (like subscriptions).
-        // If data.s (symbol) is missing, ignore this message.
-        if (!data || !data.s) return;
-        // ---------------------------
+        // --- CRITICAL FIX: AGGRESSIVE FILTERING ---
+        // Ensure data is an object and has the specific 's' (symbol) property
+        // and that 's' is actually a string.
+        if (!data || typeof data !== 'object' || !data.s || typeof data.s !== 'string') {
+            return;
+        }
 
         const symbol = data.s; 
         
         const marketInfo: MarketData = {
-          symbol,
+          symbol: symbol,
           name: symbol === 'BTCUSDT' ? 'Bitcoin' : 'Ethereum',
-          price: parseFloat(data.c),
-          change: parseFloat(data.p),
-          changePercent: parseFloat(data.P),
-          volume: parseFloat(data.v),
-          high24h: parseFloat(data.h),
-          low24h: parseFloat(data.l),
+          price: parseFloat(data.c || '0'),
+          change: parseFloat(data.p || '0'),
+          changePercent: parseFloat(data.P || '0'),
+          volume: parseFloat(data.v || '0'),
+          high24h: parseFloat(data.h || '0'),
+          low24h: parseFloat(data.l || '0'),
           lastUpdate: Date.now(),
         };
 
@@ -132,7 +137,8 @@ export default function Dashboard() {
         });
 
       } catch (e) {
-        console.error('Error parsing Binance data:', e);
+        // Silently fail on parse errors to avoid crashing UI
+        // console.error('Error parsing Binance data:', e);
       }
     };
 
@@ -154,7 +160,10 @@ export default function Dashboard() {
       const response = await fetch('/api/osint');
       if (response.ok) {
         const data = await response.json();
-        setOsintData(data.articles || []);
+        // Ensure articles is an array
+        if (Array.isArray(data.articles)) {
+            setOsintData(data.articles);
+        }
       }
     } catch (error) {
       console.error('OSINT fetch error:', error);
@@ -184,7 +193,7 @@ export default function Dashboard() {
 
         if (response.ok) {
           const result = await response.json();
-          if (result.anomalies?.length > 0) {
+          if (result.anomalies && Array.isArray(result.anomalies)) {
             setAnomalies(prev => {
               const newAnomalies = result.anomalies.map((a: any) => ({
                 ...a,
@@ -218,21 +227,30 @@ export default function Dashboard() {
     };
   }, [connectBinanceWS, fetchOSINT, runAnomalyDetection]);
 
-  // 5. Helpers
+  // 5. Helpers (BULLETPROOF FORMATTER)
   const handleLogout = async () => {
     await fetch('/api/auth/logout', { method: 'POST' });
     router.push('/');
   };
 
-  const formatPrice = (price: number, symbol: string | undefined) => {
-    // FIX: Guard against undefined symbols
-    if (!symbol) return '---';
-
-    if (symbol.includes('ZAR') || symbol === 'USDZAR') {
-      return `R ${price.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}`;
+  const formatPrice = (price: number, symbol: any) => {
+    // --- CRITICAL FIX: SAFEGUARD AGAINST UNDEFINED ---
+    // If symbol is missing, or not a string, fallback immediately
+    if (!symbol || typeof symbol !== 'string') {
+        return `$${(price || 0).toFixed(2)}`;
     }
-    const digits = price > 1000 ? 0 : 2;
-    return `$${price.toLocaleString('en-US', { minimumFractionDigits: digits })}`;
+
+    try {
+        // Use optional chaining just in case
+        if (symbol?.includes('ZAR') || symbol === 'USDZAR') {
+          return `R ${price.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}`;
+        }
+        const digits = price > 1000 ? 0 : 2;
+        return `$${price.toLocaleString('en-US', { minimumFractionDigits: digits })}`;
+    } catch (e) {
+        // Ultimate fallback if localeString fails
+        return `${price}`;
+    }
   };
 
   const getSeverityColor = (severity: string) => {
@@ -308,7 +326,7 @@ export default function Dashboard() {
           {[
             { id: 'live', label: 'Live Markets', icon: '📈' },
             { id: 'map', label: 'Global Map', icon: '🌍' },
-            { id: 'anomaly', label: 'Anomaly Detection', icon: '⚠️', count: anomalyCount },
+            { id: 'anomaly', label: 'Anomaly Detection', icon: ⚠️', count: anomalyCount },
             { id: 'osint', label: 'OSINT Feed', icon: '🔍' },
             { id: 'prophet', label: '48h Prophet', icon: '🔮' },
           ].map((item) => (
@@ -357,6 +375,7 @@ export default function Dashboard() {
                     {data.changePercent >= 0 ? '▲' : '▼'} {Math.abs(data.changePercent).toFixed(2)}%
                   </div>
                   <div style={styles.priceCardMeta}>
+                    {/* Pass symbol safely to helper */}
                     <span>H: {formatPrice(data.high24h, symbol)}</span>
                     <span>L: {formatPrice(data.low24h, symbol)}</span>
                   </div>
@@ -379,6 +398,7 @@ export default function Dashboard() {
         {activeTab === 'map' && (
           <div style={styles.tabContent}>
             <h2 style={styles.tabTitle}>GLOBAL MARKET HEATMAP</h2>
+            {/* WorldHeatmap is external, assumed safe, but if it crashes it will be internal to it */}
             <WorldHeatmap osintData={osintData} />
           </div>
         )}
@@ -421,7 +441,7 @@ export default function Dashboard() {
                         color: getSeverityColor(anomaly.severity),
                         borderColor: getSeverityColor(anomaly.severity),
                       }}>
-                        {anomaly.severity.toUpperCase()}
+                        {anomaly.severity ? anomaly.severity.toUpperCase() : 'UNKNOWN'}
                       </span>
                       <span style={styles.anomalyTicker}>{anomaly.ticker}</span>
                     </div>
