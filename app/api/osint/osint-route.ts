@@ -18,7 +18,6 @@ interface NewsItem {
   };
 }
 
-// Sentiment analysis keywords
 const NEGATIVE_KEYWORDS = [
   'crash', 'plunge', 'collapse', 'scandal', 'fraud', 'investigation',
   'lawsuit', 'hack', 'breach', 'ransomware', 'layoff', 'bankruptcy',
@@ -32,7 +31,6 @@ const POSITIVE_KEYWORDS = [
   'launch', 'success', 'record', 'upgrade', 'bullish',
 ];
 
-// Ticker extraction patterns
 const TICKER_PATTERNS: Record<string, string[]> = {
   'bitcoin': ['BTC', 'BTCUSDT'],
   'ethereum': ['ETH', 'ETHUSDT'],
@@ -83,7 +81,6 @@ function extractTickers(text: string): string[] {
     }
   });
   
-  // Also look for explicit ticker mentions like $BTC or (NVDA)
   const tickerRegex = /\$([A-Z]{2,5})|\(([A-Z]{2,5})\)/g;
   let match;
   while ((match = tickerRegex.exec(text)) !== null) {
@@ -93,7 +90,14 @@ function extractTickers(text: string): string[] {
     }
   }
   
-return Array.from(new Set(foundTickers));
+  const uniqueTickers: string[] = [];
+  foundTickers.forEach(t => {
+    if (!uniqueTickers.includes(t)) {
+      uniqueTickers.push(t);
+    }
+  });
+  
+  return uniqueTickers;
 }
 
 function calculateThreatScore(
@@ -109,7 +113,6 @@ function calculateThreatScore(
     baseScore = 10;
   }
   
-  // Boost for critical keywords
   const criticalKeywords = ['hack', 'breach', 'ransomware', 'crash', 'fraud', 'bankruptcy'];
   const lowerText = text.toLowerCase();
   
@@ -147,27 +150,33 @@ function categorizeNews(text: string): string {
   return 'Market News';
 }
 
+interface ArticleData {
+  title: string;
+  description?: string;
+  source?: { name?: string };
+  url: string;
+  publishedAt: string;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
     const query = searchParams.get('q') || 'finance cryptocurrency stocks';
-    const category = searchParams.get('category') || 'business';
     
     const NEWS_API_KEY = process.env.NEWS_API_KEY;
     
     let articles: NewsItem[] = [];
     
     if (NEWS_API_KEY) {
-      // Fetch from NewsAPI
       const response = await fetch(
         `https://newsapi.org/v2/everything?q=${encodeURIComponent(query)}&language=en&sortBy=publishedAt&pageSize=20&apiKey=${NEWS_API_KEY}`,
-        { next: { revalidate: 300 } } // Cache for 5 minutes
+        { next: { revalidate: 300 } }
       );
       
       if (response.ok) {
         const data = await response.json();
         
-        articles = (data.articles || []).map((article: any, index: number) => {
+        articles = (data.articles || []).map((article: ArticleData, index: number) => {
           const fullText = `${article.title} ${article.description || ''}`;
           const { sentiment, score: sentimentScore } = analyzeSentiment(fullText);
           const tickers = extractTickers(fullText);
@@ -190,30 +199,43 @@ export async function GET(request: NextRequest) {
       }
     }
     
-    // Add mock data if no API key or no results
     if (articles.length === 0) {
       articles = generateMockOSINT();
     }
     
-    // Sort by threat score (highest first)
     articles.sort((a, b) => b.threatScore - a.threatScore);
     
-    // Filter by category if specified
     const filteredCategory = searchParams.get('filterCategory');
     if (filteredCategory && filteredCategory !== 'all') {
       articles = articles.filter(a => a.category === filteredCategory);
     }
+    
+    const categories: string[] = [];
+    articles.forEach(a => {
+      if (!categories.includes(a.category)) {
+        categories.push(a.category);
+      }
+    });
+    
+    const allTickers: string[] = [];
+    articles.forEach(a => {
+      a.tickers.forEach(t => {
+        if (!allTickers.includes(t)) {
+          allTickers.push(t);
+        }
+      });
+    });
     
     return NextResponse.json({
       success: true,
       count: articles.length,
       timestamp: Date.now(),
       articles,
-      categories: [...new Set(articles.map(a => a.category))],
+      categories,
       stats: {
         totalThreats: articles.filter(a => a.threatScore > 50).length,
         highSeverity: articles.filter(a => a.threatScore > 70).length,
-        affectedTickers: [...new Set(articles.flatMap(a => a.tickers))],
+        affectedTickers: allTickers,
       },
     });
   } catch (error) {
@@ -302,18 +324,15 @@ function generateMockOSINT(): NewsItem[] {
   ];
 }
 
-// POST endpoint for custom OSINT queries
 export async function POST(request: NextRequest) {
   try {
-    const { query, tickers, timeRange } = await request.json();
+    const { query, tickers } = await request.json();
     
-    // Build search query
     const searchQuery = [
       query,
       ...(tickers || []).map((t: string) => `$${t}`),
     ].filter(Boolean).join(' OR ');
     
-    // Redirect to GET with params
     const url = new URL(request.url);
     url.searchParams.set('q', searchQuery);
     
