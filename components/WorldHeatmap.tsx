@@ -1,14 +1,16 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
+import { useEffect, useRef } from 'react';
 
 interface OSINTItem {
   id: string;
   title: string;
+  source: string;
   threatScore: number;
   category: string;
+  sentiment: string;
+  publishedAt: string;
+  tickers?: string[];
   location?: {
     country: string;
     lat?: number;
@@ -20,229 +22,223 @@ interface WorldHeatmapProps {
   osintData?: OSINTItem[];
 }
 
-// Major exchange locations
-const EXCHANGES = [
-  { name: 'NYSE', lat: 40.7069, lng: -74.0089, country: 'US', volume: 85 },
-  { name: 'NASDAQ', lat: 40.7569, lng: -73.9897, country: 'US', volume: 78 },
-  { name: 'LSE', lat: 51.5144, lng: -0.0893, country: 'UK', volume: 65 },
-  { name: 'Tokyo SE', lat: 35.6813, lng: 139.7669, country: 'JP', volume: 72 },
-  { name: 'Shanghai SE', lat: 31.2304, lng: 121.4737, country: 'CN', volume: 68 },
-  { name: 'Hong Kong SE', lat: 22.2830, lng: 114.1594, country: 'HK', volume: 60 },
-  { name: 'Euronext', lat: 48.8698, lng: 2.3411, country: 'FR', volume: 55 },
-  { name: 'Frankfurt SE', lat: 50.1109, lng: 8.6821, country: 'DE', volume: 52 },
-  { name: 'JSE', lat: -26.1496, lng: 28.0343, country: 'ZA', volume: 35 },
-  { name: 'ASX', lat: -33.8688, lng: 151.2093, country: 'AU', volume: 45 },
-  { name: 'BSE', lat: 18.9298, lng: 72.8354, country: 'IN', volume: 48 },
-  { name: 'Toronto SE', lat: 43.6510, lng: -79.3470, country: 'CA', volume: 42 },
-  { name: 'Singapore SE', lat: 1.2838, lng: 103.8591, country: 'SG', volume: 50 },
-  { name: 'Swiss SE', lat: 47.3769, lng: 8.5417, country: 'CH', volume: 40 },
-  { name: 'Binance', lat: 1.3521, lng: 103.8198, country: 'SG', volume: 90 },
-  { name: 'Luno', lat: -33.9249, lng: 18.4241, country: 'ZA', volume: 30 },
+interface Exchange {
+  name: string;
+  lat: number;
+  lng: number;
+  volume: number;
+  type: string;
+}
+
+const EXCHANGES: Exchange[] = [
+  { name: 'NYSE', lat: 40.7128, lng: -74.0060, volume: 95, type: 'stock' },
+  { name: 'NASDAQ', lat: 40.7589, lng: -73.9851, volume: 90, type: 'stock' },
+  { name: 'LSE', lat: 51.5074, lng: -0.1278, volume: 75, type: 'stock' },
+  { name: 'Tokyo SE', lat: 35.6762, lng: 139.6503, volume: 70, type: 'stock' },
+  { name: 'Shanghai SE', lat: 31.2304, lng: 121.4737, volume: 80, type: 'stock' },
+  { name: 'Hong Kong SE', lat: 22.3193, lng: 114.1694, volume: 72, type: 'stock' },
+  { name: 'Euronext', lat: 48.8566, lng: 2.3522, volume: 65, type: 'stock' },
+  { name: 'Frankfurt SE', lat: 50.1109, lng: 8.6821, volume: 60, type: 'stock' },
+  { name: 'Toronto SE', lat: 43.6532, lng: -79.3832, volume: 55, type: 'stock' },
+  { name: 'Sydney ASX', lat: -33.8688, lng: 151.2093, volume: 50, type: 'stock' },
+  { name: 'JSE', lat: -26.2041, lng: 28.0473, volume: 45, type: 'stock' },
+  { name: 'Mumbai BSE', lat: 19.0760, lng: 72.8777, volume: 58, type: 'stock' },
+  { name: 'Singapore SGX', lat: 1.3521, lng: 103.8198, volume: 52, type: 'stock' },
+  { name: 'Binance', lat: 1.3521, lng: 103.8198, volume: 98, type: 'crypto' },
+  { name: 'Coinbase', lat: 37.7749, lng: -122.4194, volume: 85, type: 'crypto' },
+  { name: 'Luno', lat: -26.2041, lng: 28.0473, volume: 40, type: 'crypto' },
 ];
 
 export default function WorldHeatmap({ osintData = [] }: WorldHeatmapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
-  const mapInstanceRef = useRef<L.Map | null>(null);
-  const [selectedExchange, setSelectedExchange] = useState<string | null>(null);
+  const mapInstanceRef = useRef<any>(null);
 
   useEffect(() => {
-    if (!mapRef.current || mapInstanceRef.current) return;
+    if (typeof window === 'undefined' || !mapRef.current) return;
 
-    // Initialize map
-    const map = L.map(mapRef.current, {
-      center: [20, 0],
-      zoom: 2,
-      minZoom: 2,
-      maxZoom: 8,
-      zoomControl: false,
-      attributionControl: false,
-    });
+    const initMap = async () => {
+      const L = (await import('leaflet')).default;
+      await import('leaflet/dist/leaflet.css');
 
-    // Dark theme tiles
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-      maxZoom: 19,
-    }).addTo(map);
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+      }
 
-    // Add zoom control to top-right
-    L.control.zoom({ position: 'topright' }).addTo(map);
-
-    // Custom CSS for markers
-    const style = document.createElement('style');
-    style.textContent = `
-      .exchange-marker {
-        background: transparent;
-        border: none;
-      }
-      .marker-inner {
-        width: 24px;
-        height: 24px;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 10px;
-        font-weight: 600;
-        color: #0a0a0f;
-        box-shadow: 0 0 20px currentColor;
-        transition: transform 0.2s ease;
-        cursor: pointer;
-      }
-      .marker-inner:hover {
-        transform: scale(1.3);
-      }
-      .threat-marker {
-        width: 16px;
-        height: 16px;
-        background: #ff3b5c;
-        border-radius: 50%;
-        box-shadow: 0 0 15px #ff3b5c;
-        animation: pulse 1.5s ease-in-out infinite;
-      }
-      @keyframes pulse {
-        0%, 100% { opacity: 1; transform: scale(1); }
-        50% { opacity: 0.7; transform: scale(1.2); }
-      }
-      .leaflet-popup-content-wrapper {
-        background: rgba(15, 20, 30, 0.95);
-        color: #e0e6ed;
-        border: 1px solid rgba(0, 255, 136, 0.3);
-        border-radius: 8px;
-        font-family: 'JetBrains Mono', monospace;
-      }
-      .leaflet-popup-tip {
-        background: rgba(15, 20, 30, 0.95);
-        border: 1px solid rgba(0, 255, 136, 0.3);
-      }
-      .popup-title {
-        font-size: 14px;
-        font-weight: 600;
-        color: #00ff88;
-        margin-bottom: 8px;
-      }
-      .popup-stat {
-        font-size: 12px;
-        color: #8892a0;
-        margin: 4px 0;
-      }
-      .popup-value {
-        color: #00d4ff;
-        font-weight: 600;
-      }
-    `;
-    document.head.appendChild(style);
-
-    // Add exchange markers
-    EXCHANGES.forEach((exchange) => {
-      const intensity = exchange.volume / 100;
-      const color = intensity > 0.7 ? '#00ff88' : intensity > 0.4 ? '#ffd700' : '#00d4ff';
-      
-      const icon = L.divIcon({
-        className: 'exchange-marker',
-        html: `<div class="marker-inner" style="background: ${color}; color: #0a0a0f;">${exchange.name.substring(0, 2)}</div>`,
-        iconSize: [24, 24],
-        iconAnchor: [12, 12],
+      const map = L.map(mapRef.current!, {
+        center: [20, 0],
+        zoom: 2,
+        minZoom: 2,
+        maxZoom: 8,
+        zoomControl: true,
+        attributionControl: false,
       });
 
-      const marker = L.marker([exchange.lat, exchange.lng], { icon }).addTo(map);
-      
-      marker.bindPopup(`
-        <div class="popup-title">${exchange.name}</div>
-        <div class="popup-stat">Country: <span class="popup-value">${exchange.country}</span></div>
-        <div class="popup-stat">Activity: <span class="popup-value">${exchange.volume}%</span></div>
-        <div class="popup-stat">Status: <span class="popup-value" style="color: #00ff88;">LIVE</span></div>
-      `);
+      // Dark map tiles
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        maxZoom: 19,
+      }).addTo(map);
 
-      marker.on('click', () => {
-        setSelectedExchange(exchange.name);
-      });
-    });
+      // Add exchange markers
+      EXCHANGES.forEach((exchange) => {
+        const color = exchange.volume > 70 ? '#00ff88' : exchange.volume > 40 ? '#ffd700' : '#00d4ff';
+        const size = Math.max(8, exchange.volume / 10);
 
-    // Add OSINT threat markers
-    osintData.forEach((item) => {
-      if (item.location?.lat && item.location?.lng) {
         const icon = L.divIcon({
-          className: 'threat-marker-container',
-          html: `<div class="threat-marker"></div>`,
-          iconSize: [16, 16],
-          iconAnchor: [8, 8],
+          className: 'custom-marker',
+          html: `
+            <div style="
+              width: ${size}px;
+              height: ${size}px;
+              background: ${color};
+              border-radius: 50%;
+              box-shadow: 0 0 ${size}px ${color};
+              opacity: 0.8;
+              animation: pulse 2s ease-in-out infinite;
+            "></div>
+          `,
+          iconSize: [size, size],
+          iconAnchor: [size / 2, size / 2],
         });
 
-        const marker = L.marker([item.location.lat, item.location.lng], { icon }).addTo(map);
-        
-        const threatColor = item.threatScore > 70 ? '#ff3b5c' : item.threatScore > 40 ? '#ffd700' : '#00d4ff';
-        
-        marker.bindPopup(`
-          <div class="popup-title" style="color: ${threatColor};">⚠️ THREAT ALERT</div>
-          <div class="popup-stat">${item.title}</div>
-          <div class="popup-stat">Category: <span class="popup-value">${item.category}</span></div>
-          <div class="popup-stat">Threat Score: <span class="popup-value" style="color: ${threatColor};">${item.threatScore}</span></div>
-          <div class="popup-stat">Location: <span class="popup-value">${item.location.country}</span></div>
-        `);
-      }
-    });
+        const marker = L.marker([exchange.lat, exchange.lng], { icon }).addTo(map);
 
-    mapInstanceRef.current = map;
+        marker.bindPopup(`
+          <div style="
+            background: #1a1a2e;
+            color: #e0e6ed;
+            padding: 12px;
+            border-radius: 8px;
+            font-family: 'JetBrains Mono', monospace;
+            min-width: 150px;
+          ">
+            <div style="font-weight: 600; color: ${color}; margin-bottom: 8px;">
+              ${exchange.name}
+            </div>
+            <div style="font-size: 11px; color: #8892a0;">
+              Type: ${exchange.type.toUpperCase()}
+            </div>
+            <div style="font-size: 11px; color: #8892a0;">
+              Activity: ${exchange.volume}%
+            </div>
+          </div>
+        `, {
+          className: 'dark-popup',
+        });
+      });
+
+      // Add OSINT threat markers
+      if (osintData && Array.isArray(osintData)) {
+        osintData.forEach((item) => {
+          if (item && item.location && item.location.lat && item.location.lng) {
+            const threatColor = item.threatScore > 70 ? '#ff3b5c' : item.threatScore > 40 ? '#ffd700' : '#00d4ff';
+
+            const threatIcon = L.divIcon({
+              className: 'threat-marker',
+              html: `
+                <div style="
+                  width: 12px;
+                  height: 12px;
+                  background: ${threatColor};
+                  border: 2px solid white;
+                  border-radius: 50%;
+                  box-shadow: 0 0 10px ${threatColor};
+                "></div>
+              `,
+              iconSize: [12, 12],
+              iconAnchor: [6, 6],
+            });
+
+            const threatMarker = L.marker([item.location.lat, item.location.lng], { icon: threatIcon }).addTo(map);
+
+            const tickersText = item.tickers && item.tickers.length > 0 ? item.tickers.join(', ') : 'N/A';
+
+            threatMarker.bindPopup(`
+              <div style="
+                background: #1a1a2e;
+                color: #e0e6ed;
+                padding: 12px;
+                border-radius: 8px;
+                font-family: 'JetBrains Mono', monospace;
+                max-width: 250px;
+              ">
+                <div style="font-weight: 600; color: ${threatColor}; margin-bottom: 8px; font-size: 12px;">
+                  THREAT SCORE: ${item.threatScore}
+                </div>
+                <div style="font-size: 11px; margin-bottom: 8px;">
+                  ${item.title || 'Unknown'}
+                </div>
+                <div style="font-size: 10px; color: #8892a0;">
+                  Category: ${item.category || 'Unknown'}
+                </div>
+                <div style="font-size: 10px; color: #ffd700;">
+                  Tickers: ${tickersText}
+                </div>
+              </div>
+            `, {
+              className: 'dark-popup',
+            });
+          }
+        });
+      }
+
+      mapInstanceRef.current = map;
+    };
+
+    initMap();
 
     return () => {
-      map.remove();
-      mapInstanceRef.current = null;
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+      }
     };
   }, [osintData]);
 
   return (
     <div style={styles.container}>
-      <div style={styles.mapContainer} ref={mapRef} />
-      
-      {/* Legend */}
+      <div ref={mapRef} style={styles.map} />
       <div style={styles.legend}>
-        <div style={styles.legendTitle}>ACTIVITY LEGEND</div>
+        <div style={styles.legendTitle}>ACTIVITY LEVEL</div>
         <div style={styles.legendItem}>
           <span style={{ ...styles.legendDot, background: '#00ff88' }} />
-          <span>High Volume (70%+)</span>
+          <span>High (70%+)</span>
         </div>
         <div style={styles.legendItem}>
           <span style={{ ...styles.legendDot, background: '#ffd700' }} />
-          <span>Medium Volume (40-70%)</span>
+          <span>Medium (40-70%)</span>
         </div>
         <div style={styles.legendItem}>
           <span style={{ ...styles.legendDot, background: '#00d4ff' }} />
-          <span>Low Volume (&lt;40%)</span>
+          <span>Low (&lt;40%)</span>
+        </div>
+        <div style={{ ...styles.legendTitle, marginTop: '16px' }}>THREAT INDICATORS</div>
+        <div style={styles.legendItem}>
+          <span style={{ ...styles.legendDot, background: '#ff3b5c', border: '2px solid white' }} />
+          <span>Critical</span>
         </div>
         <div style={styles.legendItem}>
-          <span style={{ ...styles.legendDot, background: '#ff3b5c', animation: 'pulse 1.5s ease infinite' }} />
-          <span>OSINT Threat</span>
+          <span style={{ ...styles.legendDot, background: '#ffd700', border: '2px solid white' }} />
+          <span>Warning</span>
         </div>
       </div>
-
-      {/* Exchange List */}
-      <div style={styles.exchangePanel}>
-        <div style={styles.exchangePanelTitle}>ACTIVE EXCHANGES</div>
-        <div style={styles.exchangeList}>
-          {EXCHANGES.slice(0, 8).map((exchange) => (
-            <div
-              key={exchange.name}
-              style={{
-                ...styles.exchangeItem,
-                borderColor: selectedExchange === exchange.name ? '#00ff88' : 'transparent',
-              }}
-              onClick={() => {
-                setSelectedExchange(exchange.name);
-                mapInstanceRef.current?.setView([exchange.lat, exchange.lng], 6);
-              }}
-            >
-              <span style={styles.exchangeName}>{exchange.name}</span>
-              <span
-                style={{
-                  ...styles.exchangeVolume,
-                  color: exchange.volume > 70 ? '#00ff88' : exchange.volume > 40 ? '#ffd700' : '#00d4ff',
-                }}
-              >
-                {exchange.volume}%
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
+      <style jsx global>{`
+        .dark-popup .leaflet-popup-content-wrapper {
+          background: transparent;
+          box-shadow: none;
+          padding: 0;
+        }
+        .dark-popup .leaflet-popup-tip {
+          background: #1a1a2e;
+        }
+        .leaflet-container {
+          background: #0a0a0f;
+          font-family: 'JetBrains Mono', monospace;
+        }
+        @keyframes pulse {
+          0%, 100% { opacity: 0.8; transform: scale(1); }
+          50% { opacity: 1; transform: scale(1.1); }
+        }
+      `}</style>
     </div>
   );
 }
@@ -251,91 +247,44 @@ const styles: { [key: string]: React.CSSProperties } = {
   container: {
     position: 'relative',
     width: '100%',
-    height: '600px',
+    height: '500px',
     borderRadius: '12px',
     overflow: 'hidden',
     border: '1px solid rgba(255, 255, 255, 0.08)',
   },
-  mapContainer: {
+  map: {
     width: '100%',
     height: '100%',
-    background: '#0a0a0f',
   },
   legend: {
     position: 'absolute',
     bottom: '20px',
-    left: '20px',
-    background: 'rgba(15, 20, 30, 0.95)',
-    border: '1px solid rgba(0, 255, 136, 0.2)',
-    borderRadius: '8px',
+    right: '20px',
+    background: 'rgba(15, 17, 23, 0.95)',
     padding: '16px',
+    borderRadius: '8px',
+    border: '1px solid rgba(255, 255, 255, 0.1)',
     zIndex: 1000,
-    backdropFilter: 'blur(10px)',
   },
   legendTitle: {
     fontSize: '10px',
     fontWeight: 600,
-    color: '#00d4ff',
+    color: '#8892a0',
     letterSpacing: '1px',
-    marginBottom: '12px',
+    marginBottom: '8px',
   },
   legendItem: {
     display: 'flex',
     alignItems: 'center',
     gap: '8px',
     fontSize: '11px',
-    color: '#8892a0',
-    marginBottom: '8px',
+    color: '#e0e6ed',
+    marginBottom: '4px',
   },
   legendDot: {
     width: '10px',
     height: '10px',
     borderRadius: '50%',
     flexShrink: 0,
-  },
-  exchangePanel: {
-    position: 'absolute',
-    top: '20px',
-    right: '20px',
-    background: 'rgba(15, 20, 30, 0.95)',
-    border: '1px solid rgba(0, 255, 136, 0.2)',
-    borderRadius: '8px',
-    padding: '16px',
-    zIndex: 1000,
-    backdropFilter: 'blur(10px)',
-    maxHeight: '400px',
-    overflowY: 'auto',
-  },
-  exchangePanelTitle: {
-    fontSize: '10px',
-    fontWeight: 600,
-    color: '#00d4ff',
-    letterSpacing: '1px',
-    marginBottom: '12px',
-  },
-  exchangeList: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '4px',
-  },
-  exchangeItem: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: '8px 12px',
-    borderRadius: '6px',
-    border: '1px solid transparent',
-    cursor: 'pointer',
-    transition: 'all 0.2s ease',
-    background: 'rgba(255, 255, 255, 0.02)',
-  },
-  exchangeName: {
-    fontSize: '12px',
-    color: '#e0e6ed',
-    fontWeight: 500,
-  },
-  exchangeVolume: {
-    fontSize: '11px',
-    fontWeight: 600,
   },
 };
