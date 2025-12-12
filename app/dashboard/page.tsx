@@ -84,6 +84,9 @@ export default function Dashboard() {
         const data = JSON.parse(event.data);
         const symbol = data.s; // BTCUSDT or ETHUSDT
         
+        // SAFETY CHECK: If symbol is missing, stop here
+        if (!symbol) return; 
+
         const marketInfo: MarketData = {
           symbol,
           name: symbol === 'BTCUSDT' ? 'Bitcoin' : 'Ethereum',
@@ -198,12 +201,16 @@ export default function Dashboard() {
     router.push('/');
   };
 
+  // --- CRITICAL FIX HERE ---
   const formatPrice = (price: number, symbol: string) => {
-    if (symbol.includes('ZAR')) {
-      return `R ${price.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}`;
+    // We add '?' to check if symbol exists before checking 'includes'
+    if (symbol?.includes('ZAR')) {
+      return `R ${price?.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}`;
     }
-    return `$${price.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+    // Default fallback
+    return `$${price?.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
   };
+  // -------------------------
 
   const getSeverityColor = (severity: string) => {
     switch (severity) {
@@ -282,6 +289,7 @@ export default function Dashboard() {
                     <span style={styles.priceCardTicker}>{symbol}</span>
                   </div>
                   <div style={styles.priceCardPrice}>
+                    {/* Passing data safely to fixed function */}
                     {formatPrice(data.price, symbol)}
                   </div>
                   <div
@@ -425,7 +433,7 @@ export default function Dashboard() {
                     <span>{item.source}</span>
                     <span>•</span>
                     <span>{new Date(item.publishedAt).toLocaleDateString()}</span>
-                    {item.tickers.length > 0 && (
+                    {item.tickers?.length > 0 && (
                       <>
                         <span>•</span>
                         <span style={styles.osintTickers}>
