@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0a0a0f"/>
+      <stop offset="100%" style="stop-color:#151520"/>
+    </linearGradient>
+    <linearGradient id="glow" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#00ff88"/>
+      <stop offset="100%" style="stop-color:#00d4ff"/>
+    </linearGradient>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="512" height="512" rx="100" fill="url(#bg)"/>
+  
+  <!-- Grid pattern -->
+  <g stroke="#00ff88" stroke-opacity="0.1" stroke-width="1">
+    <line x1="0" y1="128" x2="512" y2="128"/>
+    <line x1="0" y1="256" x2="512" y2="256"/>
+    <line x1="0" y1="384" x2="512" y2="384"/>
+    <line x1="128" y1="0" x2="128" y2="512"/>
+    <line x1="256" y1="0" x2="256" y2="512"/>
+    <line x1="384" y1="0" x2="384" y2="512"/>
+  </g>
+  
+  <!-- Oracle Eye Symbol -->
+  <g transform="translate(256, 256)">
+    <!-- Outer ring -->
+    <circle cx="0" cy="0" r="140" fill="none" stroke="url(#glow)" stroke-width="8"/>
+    
+    <!-- Eye shape -->
+    <ellipse cx="0" cy="0" rx="100" ry="60" fill="none" stroke="#00ff88" stroke-width="4"/>
+    
+    <!-- Pupil -->
+    <circle cx="0" cy="0" r="35" fill="url(#glow)"/>
+    <circle cx="0" cy="0" r="15" fill="#0a0a0f"/>
+    
+    <!-- Highlight -->
+    <circle cx="10" cy="-10" r="8" fill="white" fill-opacity="0.6"/>
+    
+    <!-- Data streams -->
+    <g stroke="#00d4ff" stroke-width="2" stroke-opacity="0.6">
+      <line x1="-140" y1="0" x2="-100" y2="0"/>
+      <line x1="100" y1="0" x2="140" y2="0"/>
+      <line x1="0" y1="-140" x2="0" y2="-60"/>
+      <line x1="0" y1="60" x2="0" y2="140"/>
+    </g>
+    
+    <!-- Corner brackets -->
+    <g stroke="#00ff88" stroke-width="4" fill="none">
+      <path d="M -120,-120 L -120,-90 M -120,-120 L -90,-120"/>
+      <path d="M 120,-120 L 120,-90 M 120,-120 L 90,-120"/>
+      <path d="M -120,120 L -120,90 M -120,120 L -90,120"/>
+      <path d="M 120,120 L 120,90 M 120,120 L 90,120"/>
+    </g>
+  </g>
+  
+  <!-- Text: CP -->
+  <text x="256" y="470" text-anchor="middle" font-family="monospace" font-size="48" font-weight="bold" fill="#00ff88">
+    ORACLE
+  </text>
+</svg>
