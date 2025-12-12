@@ -287,7 +287,7 @@ export async function POST(request: NextRequest) {
       summary: {
         hasAnomalies: anomalies.length > 0,
         highestSeverity: anomalies[0]?.severity || 'none',
-        types: [...new Set(anomalies.map(a => a.type))],
+        types: Array.from(new Set(anomalies.map(a => a.type))),,
       },
     });
   } catch (error) {
