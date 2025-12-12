@@ -37,7 +37,7 @@ interface OSINTItem {
   category: string;
   sentiment: string;
   publishedAt: string;
-  tickers: string[];
+  tickers?: string[];
 }
 
 type TabType = 'live' | 'map' | 'anomaly' | 'osint' | 'prophet';
@@ -220,7 +220,7 @@ export default function Dashboard() {
       {/* Header */}
       <header style={styles.header}>
         <div style={styles.headerLeft}>
-          <h1 style={styles.logo}>CHAPMAN'S PEEK</h1>
+          <h1 style={styles.logo}>CHAPMAN&apos;S PEEK</h1>
           <span style={styles.subtitle}>THE ORACLE</span>
         </div>
         <div style={styles.headerCenter}>
@@ -429,7 +429,7 @@ export default function Dashboard() {
                       <>
                         <span>•</span>
                         <span style={styles.osintTickers}>
-                          {item.tickers?.join(', ')}
+                          {item.tickers.join(', ')}
                         </span>
                       </>
                     )}
@@ -459,7 +459,7 @@ export default function Dashboard() {
 
       {/* Footer */}
       <footer style={styles.footer}>
-        <span>© 2025 Chapman's Capital</span>
+        <span>© 2025 Chapman&apos;s Capital</span>
         <span style={styles.footerDot}>•</span>
         <span>All feeds live</span>
         <span style={styles.footerDot}>•</span>
