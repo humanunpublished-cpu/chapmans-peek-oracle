@@ -93,7 +93,7 @@ function extractTickers(text: string): string[] {
     }
   }
   
-  return [...new Set(foundTickers)];
+return Array.from(new Set(foundTickers));
 }
 
 function calculateThreatScore(
